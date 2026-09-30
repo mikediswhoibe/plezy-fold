@@ -91,6 +91,10 @@ import '../utils/player_utils.dart';
 import '../utils/orientation_helper.dart';
 import '../utils/platform_detector.dart';
 import '../utils/provider_extensions.dart';
+import '../utils/flex_layout.dart';
+import '../utils/fold_feature_service.dart';
+import '../utils/hinge_posture_service.dart';
+import '../utils/fold_log.dart';
 import '../utils/snackbar_helper.dart';
 import '../utils/stream_buffer_sizing.dart';
 import '../utils/video_player_navigation.dart';
@@ -100,6 +104,7 @@ import 'video_player/episode_session_state.dart';
 import 'video_player/first_frame_gate.dart';
 import 'video_player/frame_rate_matcher.dart';
 import 'video_player/player_output_format.dart';
+import 'video_player/widgets/flex_controls_panel.dart';
 import 'video_player/companion_remote_binding.dart';
 import 'video_player/media_controls_screen_controller.dart';
 import 'video_player/media_reload_outcome.dart';
@@ -976,6 +981,19 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   int _pinchZoomActivationUpdateCount = 0;
   bool _isPinchZooming = false;
   bool _pinchZoomChanged = false;
+  String? _lastFoldDecisionLog;
+  /// The split this frame's decision produced; the post-frame video-region
+  /// dispatch in `_scheduleVideoLayoutUpdate` reads it, so the region follows
+  /// the split even when the video area's size is unchanged.
+  FlexLayoutSplit? _currentFlexSplit;
+  /// Last video region actually sent to the native surface host (null =
+  /// full window), keyed on the region itself so repeated identical layouts
+  /// do not re-send.
+  FlexVideoRegion? _lastSentVideoRegion;
+  /// The orientation policy last applied for the flex split: 1 = portrait
+  /// (tabletop split active), 2 = the screen's landscape lock, 3 = free
+  /// rotation. Reapplied only when the decision changes it.
+  int _lastFlexOrientationKey = 0;
   WatchTogetherProvider? _watchTogetherProvider;
   Object? _watchTogetherBinding;
   WatchPlaybackLease? _watchTogetherLease;
@@ -1306,6 +1324,12 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   @override
   void initState() {
     super.initState();
+    // Foldable posture changes (tabletop/book) re-split the player live; the
+    // service stays silent on non-foldable devices.
+    FoldFeatureService.instance.addListener(_onFoldFeatureChanged);
+    // Hinge-angle posture transitions (bent <-> flat) drive the live re-split
+    // and the portrait lock; silent on devices without the sensor.
+    HingePostureService.instance.addListener(_onHingePostureChanged);
     PlaybackCoordinator.instance.registerVideoSession(shutdown: _shutdownVideo, stopAndExit: _stopVideoAndExit);
     SleepTimerService().bindPlayback(
       owner: this,
@@ -2377,6 +2401,8 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
     _playerInitializationGeneration++;
     _frameRate.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    FoldFeatureService.instance.removeListener(_onFoldFeatureChanged);
+    HingePostureService.instance.removeListener(_onHingePostureChanged);
     CarUxRestrictionsService.instance.listenable.removeListener(_handleCarRestrictionsChanged);
 
     _transitionGate.completeIdleWaiters();
@@ -2707,6 +2733,13 @@ class VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _setPlayerState(VoidCallback fn) => setStateIfMounted(fn);
+
+  /// Fold posture (or its absence) changed: re-split / un-split the player.
+  void _onFoldFeatureChanged() => _setPlayerState(() {});
+
+  /// Hinge-angle posture (bent <-> flat) changed: re-split / un-split the
+  /// player and re-key the orientation lock.
+  void _onHingePostureChanged() => _setPlayerState(() {});
 
   /// Wait briefly for the active user's preferences to load in offline mode.
   /// This prevents default-track fallback when playback starts before

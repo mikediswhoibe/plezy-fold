@@ -45,6 +45,8 @@ import 'widgets/agent_control_scope.dart';
 import 'widgets/settings_builder.dart';
 import 'utils/platform_detector.dart';
 import 'utils/pointer_scroll_axis.dart';
+import 'utils/fold_feature_service.dart';
+import 'utils/hinge_posture_service.dart';
 import 'services/apple_tv_remote_touch_service.dart';
 import 'services/discord_rpc_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -1022,6 +1024,9 @@ void _startNonessentialInitialization(SettingsService settings) {
   bestEffort('Native window', () {
     if (Platform.isAndroid) PipService();
     NativeWindowService.initialize();
+    // Foldable posture observation (Android only; a no-op elsewhere).
+    FoldFeatureService.instance.init();
+    HingePostureService.instance.init();
   });
 
   bestEffort('Fullscreen monitor', () async {

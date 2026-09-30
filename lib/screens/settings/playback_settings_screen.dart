@@ -14,6 +14,7 @@ import '../../services/settings_service.dart';
 import '../../services/video_decode_capabilities.dart';
 import '../../utils/codec_utils.dart';
 import '../../utils/platform_detector.dart';
+import '../../utils/fold_feature_service.dart';
 import '../../widgets/setting_tile.dart';
 import '../../widgets/settings_builder.dart';
 import '../../widgets/settings_page.dart';
@@ -69,6 +70,8 @@ class PlaybackSettingsScreen extends StatelessWidget {
                 if (exoActive) _playbackBufferTile(),
                 if (exoActive) _tunneledPlaybackTile(),
                 if (PlatformDetector.supportsPictureInPicture()) _autoPipTile(),
+                if (Platform.isAndroid && FoldFeatureService.instance.current.foldable) _flexLayoutTile(),
+                if (Platform.isAndroid) _forceFlexLayoutTile(),
               ],
             ),
 
@@ -451,6 +454,27 @@ class PlaybackSettingsScreen extends StatelessWidget {
     icon: Symbols.picture_in_picture_alt_rounded,
     title: t.settings.autoPip,
     subtitle: t.settings.autoPipDescription,
+  );
+
+  /// Only visible on foldables (the tile's condition reads the fold-feature
+  /// service; a device is either foldable or not, so this never flips
+  /// mid-session).
+  Widget _flexLayoutTile() => SettingSwitchTile(
+    pref: SettingsService.flexLayout,
+    icon: Symbols.unfold_more_rounded,
+    title: t.settings.flexLayout,
+    subtitle: t.settings.flexLayoutDescription,
+  );
+
+  /// Visible on every Android device: on a foldable, forces the
+  /// compact-control split while the device is bent (flat or landscape keeps
+  /// the standard controls); on a non-foldable, previews the split in a
+  /// portrait window.
+  Widget _forceFlexLayoutTile() => SettingSwitchTile(
+    pref: SettingsService.forceFlexLayout,
+    icon: Symbols.unfold_less_rounded,
+    title: t.settings.forceFlexLayout,
+    subtitle: t.settings.forceFlexLayoutDescription,
   );
 
   Widget _matchContentFrameRateTile() => SettingSwitchTile(

@@ -3,11 +3,13 @@ package com.edde746.plezy.shared
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import com.edde746.plezy.mpv.OsdPlanePolicy
+import io.flutter.plugin.common.MethodCall
 
 /** Shared Android view scaffold beneath the ExoPlayer and mpv cores. */
 internal object PlayerSurfaceHost {
@@ -19,12 +21,72 @@ internal object PlayerSurfaceHost {
    * instead; see [createOsdSurface].
    */
   fun createContainer(activity: Activity, clipChildren: Boolean = false): FrameLayout = FrameLayout(activity).apply {
-    layoutParams = ViewGroup.LayoutParams(
-      ViewGroup.LayoutParams.MATCH_PARENT,
-      ViewGroup.LayoutParams.MATCH_PARENT
+    // FrameLayout.LayoutParams (a MarginLayoutParams) so [applyVideoRegion]
+    // can reposition the container by margin without reparenting.
+    layoutParams = FrameLayout.LayoutParams(
+      FrameLayout.LayoutParams.MATCH_PARENT,
+      FrameLayout.LayoutParams.MATCH_PARENT
     )
     setBackgroundColor(Color.BLACK)
     this.clipChildren = clipChildren
+  }
+
+  /**
+   * Confines the surface container — and with it the video and OSD planes it
+   * hosts — to [region] in device pixels relative to the container's parent
+   * (the activity content view), or restores full window coverage when
+   * [region] is null.
+   *
+   * Both cores letterbox the video inside whatever the container measures
+   * (mpv through VideoRectPolicy, Exo through its AspectRatioFrameLayout),
+   * so resizing the container is the whole video-side change; the Flutter
+   * overlay owns the rest of the screen. No-op when the layout already
+   * matches, so layout passes do not retrigger themselves.
+   */
+  fun applyVideoRegion(container: FrameLayout, region: Rect?) {
+    val lp = container.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+    if (region == null) {
+      if (lp.width == ViewGroup.LayoutParams.MATCH_PARENT &&
+        lp.height == ViewGroup.LayoutParams.MATCH_PARENT &&
+        lp.leftMargin == 0 &&
+        lp.topMargin == 0
+      ) {
+        return
+      }
+      lp.width = ViewGroup.LayoutParams.MATCH_PARENT
+      lp.height = ViewGroup.LayoutParams.MATCH_PARENT
+      lp.leftMargin = 0
+      lp.topMargin = 0
+    } else {
+      val width = region.width()
+      val height = region.height()
+      if (width <= 0 || height <= 0) return
+      if (lp.width == width && lp.height == height && lp.leftMargin == region.left && lp.topMargin == region.top) {
+        return
+      }
+      lp.width = width
+      lp.height = height
+      lp.leftMargin = region.left
+      lp.topMargin = region.top
+    }
+    container.layoutParams = lp
+  }
+
+  /**
+   * The video region a `setVideoRegion` call carries: a device-pixel rect, or
+   * null when the surface should fill the window. Absent or degenerate
+   * arguments mean "reset" rather than a broken layout, so a malformed call
+   * can at worst restore the full-window surface.
+   */
+  fun videoRegionFromCall(call: MethodCall): Rect? {
+    val args = call.arguments ?: return null
+    val map = args as? Map<*, *> ?: return null
+    val left = (map["left"] as? Number)?.toInt() ?: return null
+    val top = (map["top"] as? Number)?.toInt() ?: return null
+    val right = (map["right"] as? Number)?.toInt() ?: return null
+    val bottom = (map["bottom"] as? Number)?.toInt() ?: return null
+    if (right <= left || bottom <= top) return null
+    return Rect(left, top, right, bottom)
   }
 
   fun createVideoSurface(activity: Activity, callback: SurfaceHolder.Callback): SurfaceView = SurfaceView(activity).apply {

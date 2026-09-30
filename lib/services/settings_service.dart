@@ -817,6 +817,24 @@ class SettingsService extends BaseSharedPreferencesService {
   static const matchDynamicRange = BoolPref('match_dynamic_range');
   static const appLocale = _AppLocalePref();
   static const autoPip = _AutoPipPref();
+
+  /// Split the video player while the device is bent (foldable): video on the
+  /// top half, compact media controls on the bottom half, in portrait. The
+  /// posture is keyed on the hinge-angle sensor (`Sensor.TYPE_HINGE_ANGLE`)
+  /// where the device exposes it — the authoritative bent/flat signal — and
+  /// falls back to the platform half-opened state and live hinge geometry on
+  /// devices without the sensor. Inert on non-foldable devices.
+  static const flexLayout = BoolPref('flex_layout', defaultValue: true);
+
+  /// Force the compact-control (split) player layout, keyed on the bent
+  /// posture rather than the window shape: on a foldable the split is active
+  /// only while the hinge-angle sensor reports a half-opened (bent) posture —
+  /// video top, compact controls bottom, forcing portrait — and a flat or
+  /// closed device keeps the standard controls, so the split is a true
+  /// indicator of the bent posture. On a non-foldable device there is no
+  /// posture signal, so the setting falls back to the orientation-keyed
+  /// preview (portrait window → split at the window's middle). Off by default.
+  static const forceFlexLayout = BoolPref('force_flex_layout', defaultValue: false);
   static const customDownloadPath = NullableStringPref('custom_download_path');
   static final customRelayUrl = NullableStringPref('custom_relay_url', transform: _normalizeRelayBaseUrl);
 
@@ -1426,6 +1444,8 @@ class SettingsService extends BaseSharedPreferencesService {
     audioDownmixNormalize,
     appLocale,
     autoPip,
+    flexLayout,
+    forceFlexLayout,
     maxVolume,
     downmixCenterBoost,
     subtitlePosition,

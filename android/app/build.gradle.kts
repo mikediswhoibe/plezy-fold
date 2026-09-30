@@ -230,7 +230,8 @@ val downloadLibdovi = tasks.register("downloadLibdovi") {
 
 android {
   namespace = "com.edde746.plezy"
-  compileSdk = flutter.compileSdkVersion
+  // Target Android 17 (API 37).
+  compileSdk = 37
   buildToolsVersion = "36.1.0"
   ndkVersion = "29.0.14206865"
 
@@ -245,12 +246,19 @@ android {
   }
 
   defaultConfig {
-    applicationId = "com.edde746.plezy"
+    applicationId = "com.edde746.plezy.fold"
     minSdk = 25 // Fire OS 6.x (API 25); :libmpv shares the same floor
-    targetSdk = flutter.targetSdkVersion
+    targetSdk = 37 // Android 17
     versionCode = flutter.versionCode
     versionName = flutter.versionName
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    ndk {
+      // Single-ABI arm64 APK: the Flutter plugin (applied above) pre-fills the default ABI
+      // list, so replace it entirely; the jniLibs merge then packages arm64-v8a only.
+      abiFilters.clear()
+      abiFilters.add("arm64-v8a")
+    }
 
     externalNativeBuild {
       cmake {
@@ -430,6 +438,11 @@ dependencies {
 
   // Android TV Watch Next integration
   implementation("androidx.tvprovider:tvprovider:1.1.0")
+
+  // Jetpack WindowManager: window-info tracking for foldable (FoldingFeature)
+  // postures. The pure-Java artifact (no Compose), used by FoldFeatureMonitor
+  // to observe the activity window's fold state on Android 29+.
+  implementation("androidx.window:window:1.5.1")
 
   // Only used to cancel the legacy periodic shelf refresh job (2.13.0's
   // removed ShelfRefreshWorker) that WorkManager persisted on updated

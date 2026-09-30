@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
@@ -4108,6 +4109,19 @@ class ExoPlayerCore(private val activity: Activity) :
           updateSurfaceViewSize(videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
         }
       }
+    }
+  }
+
+  override fun setVideoRegion(region: Rect?) {
+    if (disposing) return
+    activity.runOnUiThread {
+      if (disposing) return@runOnUiThread
+      val container = surfaceContainer ?: return@runOnUiThread
+      PlayerSurfaceHost.applyVideoRegion(container, region)
+      // The container's global-layout listener re-runs updateSurfaceViewSize,
+      // so the AspectRatioFrameLayout, the video SurfaceView, and the
+      // subtitle views (all MATCH_PARENT) follow the new bounds and the
+      // picture re-letterboxes inside them.
     }
   }
 

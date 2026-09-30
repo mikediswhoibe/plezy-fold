@@ -1234,6 +1234,25 @@ class PlayerNative extends PlayerBase {
     }
   }
 
+  @override
+  Future<void> setVideoRegion({int? left, int? top, int? right, int? bottom}) async {
+    if (_nativeCoreUnavailable || !initialized) return;
+    // Only the Android surface host resizes its container; on the other
+    // platforms the native surface follows the Flutter layout (desktop) or
+    // the Metal layer (iOS/macOS), so a region request is meaningless.
+    if (!Platform.isAndroid) return;
+    if (left == null && top == null && right == null && bottom == null) {
+      await invoke('setVideoRegion');
+      return;
+    }
+    await invoke('setVideoRegion', {
+      'left': left,
+      'top': top,
+      'right': right,
+      'bottom': bottom,
+    });
+  }
+
   /// iOS/tvOS scale the native video container instead of mpv's `video-zoom`:
   /// on the avfoundation VO a nonzero zoom re-renders every frame through
   /// Core Image, which destroys HDR/Dolby Vision passthrough (DV renders

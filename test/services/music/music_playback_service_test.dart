@@ -436,6 +436,12 @@ class FakePlayer implements Player {
 
   @override
   Future<void> abandonAudioFocus() async {}
+
+  /// The fake implements only the members the music service touches; the
+  /// rest of the Player interface (video-surface and desktop-only methods)
+  /// falls through to the standard unimplemented fallback.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class RecordedReport {

@@ -563,6 +563,21 @@ class PlayerAndroid extends PlayerBase {
   }
 
   @override
+  Future<void> setVideoRegion({int? left, int? top, int? right, int? bottom}) async {
+    if (disposed || !initialized) return;
+    if (left == null && top == null && right == null && bottom == null) {
+      await invoke('setVideoRegion');
+      return;
+    }
+    await invoke('setVideoRegion', {
+      'left': left,
+      'top': top,
+      'right': right,
+      'bottom': bottom,
+    });
+  }
+
+  @override
   Future<bool> requestAudioFocus() async {
     if (disposed) return false;
     await _ensureInitialized();

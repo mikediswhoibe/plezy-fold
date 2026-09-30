@@ -1,5 +1,7 @@
 package com.edde746.plezy.shared
 
+import android.graphics.Rect
+
 /**
  * Surface and display concerns that the ExoPlayer and mpv cores implement
  * identically, so a plugin holding either one dispatches without branching
@@ -25,4 +27,11 @@ interface SurfacePlayerCore {
     matchResolution: Boolean,
     onComplete: (switched: Boolean) -> Unit
   )
+
+  /**
+   * Confine the video surface to [region] (device pixels, content-view
+   * coordinates) or restore full window coverage when null. Foldable flex
+   * layout calls this to letterbox the video into its half of a bent display.
+   */
+  fun setVideoRegion(region: Rect?)
 }

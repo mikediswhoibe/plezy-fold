@@ -32,6 +32,31 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
       _pendingVideoLayoutSize = null;
       if (pendingSize == null || currentPlayer == null) return;
 
+      // The video region is dispatched on every layout update, not just on a
+      // size change: a dpr change (moving the window between displays) leaves
+      // the logical size identical while the device-pixel region the native
+      // surface needs changes. The dedup is keyed on the region itself, and
+      // normal full-screen playback (region stays null) never pays a
+      // channel round-trip.
+      final region = flexVideoRegion(
+        _currentFlexSplit,
+        MediaQuery.sizeOf(context),
+        MediaQuery.devicePixelRatioOf(context),
+      );
+      if (region != _lastSentVideoRegion) {
+        _lastSentVideoRegion = region;
+        unawaited(
+          region == null
+              ? currentPlayer.setVideoRegion()
+              : currentPlayer.setVideoRegion(
+                  left: region.left,
+                  top: region.top,
+                  right: region.right,
+                  bottom: region.bottom,
+                ),
+        );
+      }
+
       final lastSize = _lastVideoLayoutSize;
       if (_lastVideoLayoutPlayer == currentPlayer &&
           lastSize != null &&
@@ -171,6 +196,69 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
     final isMobile = PlatformDetector.isMobile(context);
     final hideChromeOnMouseExit = !(isMobile && !PlatformDetector.isTV());
 
+    // Foldable flex layout: a split of the player screen at the hinge —
+    // video on the upright half, compact controls on the other half. The
+    // decision is owned by flexDecisionFor: the hinge-angle sensor is the
+    // authoritative posture signal (bent → split, flat/closed → standard
+    // controls) with the window geometry only as a fallback where the sensor
+    // is absent; force mode is orientation-keyed on a non-foldable.
+    final fold = FoldFeatureService.instance.current;
+    final posture = HingePostureService.instance.current;
+    final flexEnabled = SettingsService.instance.read(SettingsService.flexLayout);
+    final forceFlex = SettingsService.instance.read(SettingsService.forceFlexLayout);
+    final windowSize = MediaQuery.sizeOf(context);
+    final decision = flexDecisionFor(
+      fold,
+      window: windowSize,
+      flexEnabled: flexEnabled,
+      force: forceFlex,
+      posture: posture,
+    );
+    final flexMode = decision.mode;
+    final effectiveFold = decision.feature;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final split = flexLayoutSplit(flexMode, effectiveFold, windowSize, devicePixelRatio: devicePixelRatio);
+
+    // The native video surface (beneath the Flutter view) only follows the
+    // split through an explicit setVideoRegion; remember this frame's split
+    // for the post-frame dispatch in _scheduleVideoLayoutUpdate.
+    _currentFlexSplit = split;
+
+    // A tabletop split is only meaningful in portrait (video top, controls
+    // bottom), so while one is active the orientation is pinned to portrait,
+    // overriding the screen's base policy (the landscape lock); when the
+    // split goes away (flat/closed posture) the base policy is restored. The
+    // entry path already applied the base policy, so this only acts on
+    // changes and never touches the immersive UI mode.
+    final flexTabletop = split != null && split.mainAxis == Axis.vertical;
+    final rotationLocked = SettingsService.instance.read(SettingsService.rotationLocked);
+    final orientationKey = flexTabletop ? 1 : (rotationLocked ? 2 : 3);
+    if (_lastFlexOrientationKey != orientationKey) {
+      _lastFlexOrientationKey = orientationKey;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        switch (orientationKey) {
+          case 1:
+            unawaited(OrientationHelper.lockPortraitOrientation());
+          case 2:
+            unawaited(OrientationHelper.lockLandscapeOrientation());
+          default:
+            unawaited(OrientationHelper.restoreDefaultOrientations());
+        }
+      });
+    }
+
+    // Diagnostics: log the decision only when its inputs change, so the file
+    // log is an event trace rather than per-frame spam.
+    final decisionKey = '$fold|posture=$posture|$flexEnabled|$forceFlex|$flexMode|$split|$windowSize';
+    if (_lastFoldDecisionLog != decisionKey) {
+      _lastFoldDecisionLog = decisionKey;
+      foldLog(
+        'decision: state=$fold hinge=$posture enabled=$flexEnabled forced=$forceFlex '
+        'mode=$flexMode split=$split window=${windowSize.width}x${windowSize.height} dpr=$devicePixelRatio',
+      );
+    }
+
     // Back handling (sheet-close + player exit) is owned by the OverlaySheetHost
     // that wraps this widget — see video_player_screen.dart (canPop/onSystemBack).
     return Scaffold(
@@ -233,116 +321,7 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
               // macOS PiP placeholder — video is in PiP window, show background with icon
               // Placed before Video so controls render on top
               if (Platform.isMacOS) const VideoPlayerMacPipPlaceholder(),
-              Center(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final newSize = Size(constraints.maxWidth, constraints.maxHeight);
-                    _scheduleVideoLayoutUpdate(newSize);
-
-                    var authority = (canControlPlayback: true, canNavigateMediaItems: true);
-                    try {
-                      authority = context
-                          .select<WatchTogetherProvider, ({bool canControlPlayback, bool canNavigateMediaItems})>(
-                            (wt) => (
-                              canControlPlayback: !wt.isInSession || wt.canControl(),
-                              canNavigateMediaItems: !wt.isInSession || wt.isHost,
-                            ),
-                          );
-                    } catch (_) {
-                      // Watch Together is optional outside the main app shell.
-                    }
-                    if (_lastMediaControlAuthority != authority) {
-                      _lastMediaControlAuthority = authority;
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) unawaited(_mediaControls.syncAvailability());
-                      });
-                    }
-
-                    // The screen answers next/previous once for every entry
-                    // point; the buttons add only the in-flight and room
-                    // authority gates so a control cannot look live while it
-                    // does nothing. Live TV is never room-bound, and its zap
-                    // debounces itself through the transition gate.
-                    final canNavigateItems = widget.isLive || authority.canNavigateMediaItems;
-                    final onNext = _hasNextItem && !_episode.isLoadingNext && canNavigateItems
-                        ? _navigateToNextItem
-                        : null;
-                    final onPrevious = _hasPreviousItem && canNavigateItems ? _navigateToPreviousItem : null;
-
-                    final sourceAudioTracks = _currentMediaInfo?.audioTracks ?? const <MediaAudioTrack>[];
-                    final sourceSubtitleSidecars = _sourceSubtitleSidecarsForControls();
-                    final sourceSubtitleTracks = _sourceSubtitleTracksForControls();
-
-                    return Video(
-                      player: player!,
-                      hasFirstFrame: _firstFrame.uiReady,
-                      controls: (context) => PlexVideoControls(
-                        player: player!,
-                        volumeController: _volumeController!,
-                        metadata: _currentMetadata,
-                        onNext: onNext,
-                        onPrevious: onPrevious,
-                        availableVersions: _availableVersions,
-                        selectedMediaIndex: _effectiveSelectedMediaIndex,
-                        selectedQualityPreset: _selectedQualityPreset,
-                        serverSupportsTranscoding: _serverSupportsTranscoding,
-                        isTranscoding: _isTranscoding,
-                        isOfflinePlayback: _isOfflinePlayback,
-                        sourceAudioTracks: sourceAudioTracks,
-                        selectedAudioStreamId: _selectedAudioStreamId,
-                        sourceSubtitleTracks: sourceSubtitleTracks,
-                        selectedSubtitleChoice: _selectedSourceSubtitleChoiceForControls(sourceSubtitleTracks),
-                        selectedSecondarySubtitleStreamId: _playbackSession?.subtitleSelection.secondarySourceStreamId,
-                        sourceSubtitleSidecars: sourceSubtitleSidecars,
-                        sourcePartId: _currentMediaInfo?.partId,
-                        onPlaybackSourceChanged: _switchPlaybackSource,
-                        onTogglePIPMode: _togglePIPMode,
-                        boxFitMode: _videoFilterManager?.boxFitMode ?? 0,
-                        videoZoomScale: _videoFilterManager?.zoomScale ?? 1.0,
-                        onCycleBoxFitMode: _visualEffects.cycleBoxFitMode,
-                        onVideoZoomChanged: _visualEffects.setZoom,
-                        onZoomIn: _visualEffects.zoomIn,
-                        onZoomOut: _visualEffects.zoomOut,
-                        onResetVideoZoom: _visualEffects.resetZoom,
-                        onCycleAudioTrack: _cycleAudioTrack,
-                        onCycleSubtitleTrack: _cycleSubtitleTrack,
-                        onAudioTrackChanged: _onAudioTrackChanged,
-                        onSubtitleTrackChanged: _onSubtitleTrackChanged,
-                        onSecondarySubtitleTrackChanged: _onSecondarySubtitleTrackChanged,
-                        onSeekRequested: _seekPlayback,
-                        onRateRequested: _setPlaybackRate,
-                        onPlayPauseRequested: _handleControlsTransport,
-                        onBack: _handleBackButton,
-                        onReachedEnd: ({skipAutoPlayCountdown = false}) =>
-                            _onVideoCompleted(true, skipAutoPlayCountdown: skipAutoPlayCountdown),
-                        canControl: authority.canControlPlayback,
-                        canNavigateMediaItems: authority.canNavigateMediaItems,
-                        hasFirstFrame: _firstFrame.uiReady,
-                        playNextFocusNode: _episode.showPlayNextDialog ? _playNextConfirmFocusNode : null,
-                        playbackPromptOpen: _showStillWatchingPrompt,
-                        chromeController: _chromeController,
-                        shaderService: _shaderService,
-                        // ignore: no-empty-block - state update triggers rebuild to reflect shader change
-                        onShaderChanged: () => _setPlayerState(() {}),
-                        thumbnailDataBuilder: _scrubPreviewSource?.isAvailable == true ? _getThumbnailData : null,
-                        isLive: widget.isLive,
-                        liveChannelName: _live.channelName,
-                        captureBuffer: _live.captureBuffer,
-                        isAtLiveEdge: _live.atLiveEdge,
-                        liveEpochForPosition: widget.isLive ? _liveEpochForPosition : null,
-                        onLiveSeek: _live.captureBuffer != null ? _seekLiveToEpoch : null,
-                        onLiveSeekBy: _live.captureBuffer != null ? _liveSeek.seekBy : null,
-                        onJumpToLive: _live.captureBuffer != null && !_live.atLiveEdge ? _jumpToLiveEdge : null,
-                        isAmbientLightingEnabled: _ambientLightingService?.isEnabled ?? false,
-                        onToggleAmbientLighting: _ambientLightingService?.isSupported == true
-                            ? _visualEffects.toggleAmbientLighting
-                            : null,
-                        toastController: _toastController,
-                      ),
-                    );
-                  },
-                ),
-              ),
+              _buildPlayerSurface(context, split: split),
               // Netflix-style auto-play overlay (hidden in PiP mode)
               VideoPlayerPlayNextOverlay(
                 visible: _episode.showPlayNextDialog,
@@ -379,6 +358,178 @@ extension _VideoPlayerBuildMethods on VideoPlayerScreenState {
           ),
         ),
       ),
+    );
+  }
+
+  /// The player surface: the video area (with the full controls chrome
+  /// overlaid) and, when a flex split is active, the compact controls panel
+  /// on the half of the bent display opposite the video.
+  ///
+  /// In flex mode the video is constrained to the region before the hinge
+  /// (top in tabletop, left in book): the native surface beneath the Flutter
+  /// view is confined to that region by the explicit `setVideoRegion`
+  /// dispatch in `_scheduleVideoLayoutUpdate` (its letterboxing inside the
+  /// region is the core's normal job), and the full controls chrome is
+  /// suppressed in favor of the compact panel.
+  Widget _buildPlayerSurface(BuildContext context, {required FlexLayoutSplit? split}) {
+    // Authority and navigation callbacks are shared by the video chrome and
+    // the flex panel, so they are computed once here instead of inside the
+    // layout closure.
+    var authority = (canControlPlayback: true, canNavigateMediaItems: true);
+    try {
+      authority = context.select<WatchTogetherProvider, ({bool canControlPlayback, bool canNavigateMediaItems})>(
+        (wt) => (
+          canControlPlayback: !wt.isInSession || wt.canControl(),
+          canNavigateMediaItems: !wt.isInSession || wt.isHost,
+        ),
+      );
+    } catch (_) {
+      // Watch Together is optional outside the main app shell.
+    }
+    if (_lastMediaControlAuthority != authority) {
+      _lastMediaControlAuthority = authority;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_mediaControls.syncAvailability());
+      });
+    }
+
+    // The screen answers next/previous once for every entry point; the
+    // buttons add only the in-flight and room authority gates so a control
+    // cannot look live while it does nothing. Live TV is never room-bound,
+    // and its zap debounces itself through the transition gate.
+    final canNavigateItems = widget.isLive || authority.canNavigateMediaItems;
+    final onNext = _hasNextItem && !_episode.isLoadingNext && canNavigateItems ? _navigateToNextItem : null;
+    final onPrevious = _hasPreviousItem && canNavigateItems ? _navigateToPreviousItem : null;
+    // The force flag drives the panel's in-place toggle; the split itself was
+    // already decided in _buildVideoPlayer from the same preference.
+    final forceFlex = SettingsService.instance.read(SettingsService.forceFlexLayout);
+
+    final videoArea = LayoutBuilder(
+      builder: (context, constraints) {
+        final newSize = Size(constraints.maxWidth, constraints.maxHeight);
+        _scheduleVideoLayoutUpdate(newSize);
+
+        final sourceAudioTracks = _currentMediaInfo?.audioTracks ?? const <MediaAudioTrack>[];
+        final sourceSubtitleSidecars = _sourceSubtitleSidecarsForControls();
+        final sourceSubtitleTracks = _sourceSubtitleTracksForControls();
+
+        return Video(
+          player: player!,
+          hasFirstFrame: _firstFrame.uiReady,
+          // The full controls chrome is replaced by the split panel in flex
+          // mode; the video region carries the surface only.
+          controls: split == null
+              ? (context) => PlexVideoControls(
+                  player: player!,
+                  volumeController: _volumeController!,
+                  metadata: _currentMetadata,
+                  onNext: onNext,
+                  onPrevious: onPrevious,
+                  availableVersions: _availableVersions,
+                  selectedMediaIndex: _effectiveSelectedMediaIndex,
+                  selectedQualityPreset: _selectedQualityPreset,
+                  serverSupportsTranscoding: _serverSupportsTranscoding,
+                  isTranscoding: _isTranscoding,
+                  isOfflinePlayback: _isOfflinePlayback,
+                  sourceAudioTracks: sourceAudioTracks,
+                  selectedAudioStreamId: _selectedAudioStreamId,
+                  sourceSubtitleTracks: sourceSubtitleTracks,
+                  selectedSubtitleChoice: _selectedSourceSubtitleChoiceForControls(sourceSubtitleTracks),
+                  selectedSecondarySubtitleStreamId: _playbackSession?.subtitleSelection.secondarySourceStreamId,
+                  sourceSubtitleSidecars: sourceSubtitleSidecars,
+                  sourcePartId: _currentMediaInfo?.partId,
+                  onPlaybackSourceChanged: _switchPlaybackSource,
+                  onTogglePIPMode: _togglePIPMode,
+                  boxFitMode: _videoFilterManager?.boxFitMode ?? 0,
+                  videoZoomScale: _videoFilterManager?.zoomScale ?? 1.0,
+                  onCycleBoxFitMode: _visualEffects.cycleBoxFitMode,
+                  onVideoZoomChanged: _visualEffects.setZoom,
+                  onZoomIn: _visualEffects.zoomIn,
+                  onZoomOut: _visualEffects.zoomOut,
+                  onResetVideoZoom: _visualEffects.resetZoom,
+                  onCycleAudioTrack: _cycleAudioTrack,
+                  onCycleSubtitleTrack: _cycleSubtitleTrack,
+                  onAudioTrackChanged: _onAudioTrackChanged,
+                  onSubtitleTrackChanged: _onSubtitleTrackChanged,
+                  onSecondarySubtitleTrackChanged: _onSecondarySubtitleTrackChanged,
+                  onSeekRequested: _seekPlayback,
+                  onRateRequested: _setPlaybackRate,
+                  onPlayPauseRequested: _handleControlsTransport,
+                  onBack: _handleBackButton,
+                  onReachedEnd: ({skipAutoPlayCountdown = false}) =>
+                      _onVideoCompleted(true, skipAutoPlayCountdown: skipAutoPlayCountdown),
+                  canControl: authority.canControlPlayback,
+                  canNavigateMediaItems: authority.canNavigateMediaItems,
+                  hasFirstFrame: _firstFrame.uiReady,
+                  playNextFocusNode: _episode.showPlayNextDialog ? _playNextConfirmFocusNode : null,
+                  playbackPromptOpen: _showStillWatchingPrompt,
+                  chromeController: _chromeController,
+                  shaderService: _shaderService,
+                  // ignore: no-empty-block - state update triggers rebuild to reflect shader change
+                  onShaderChanged: () => _setPlayerState(() {}),
+                  thumbnailDataBuilder: _scrubPreviewSource?.isAvailable == true ? _getThumbnailData : null,
+                  isLive: widget.isLive,
+                  liveChannelName: _live.channelName,
+                  captureBuffer: _live.captureBuffer,
+                  isAtLiveEdge: _live.atLiveEdge,
+                  liveEpochForPosition: widget.isLive ? _liveEpochForPosition : null,
+                  onLiveSeek: _live.captureBuffer != null ? _seekLiveToEpoch : null,
+                  onLiveSeekBy: _live.captureBuffer != null ? _liveSeek.seekBy : null,
+                  onJumpToLive: _live.captureBuffer != null && !_live.atLiveEdge ? _jumpToLiveEdge : null,
+                  isAmbientLightingEnabled: _ambientLightingService?.isEnabled ?? false,
+                  onToggleAmbientLighting: _ambientLightingService?.isSupported == true
+                      ? _visualEffects.toggleAmbientLighting
+                      : null,
+                  toastController: _toastController,
+                )
+              : null,
+        );
+      },
+    );
+
+    if (split == null) return Center(child: videoArea);
+
+    final panel = FlexControlsPanel(
+      player: player!,
+      metadata: _currentMetadata,
+      chapters: _currentMediaInfo?.chapters ?? const <MediaChapter>[],
+      chaptersLoaded: _currentMediaInfo != null,
+      seekTimeSmall: SettingsService.instance.read(SettingsService.seekTimeSmall),
+      isLive: widget.isLive,
+      canControl: authority.canControlPlayback,
+      liveChannelName: _live.channelName,
+      captureBuffer: _live.captureBuffer,
+      isAtLiveEdge: _live.atLiveEdge,
+      liveEpochForPosition: widget.isLive ? _liveEpochForPosition : null,
+      onLiveSeek: _live.captureBuffer != null ? _seekLiveToEpoch : null,
+      onJumpToLive: _live.captureBuffer != null && !_live.atLiveEdge ? _jumpToLiveEdge : null,
+      onNext: onNext,
+      onPrevious: onPrevious,
+      onSeekRequested: _seekPlayback,
+      onPlayPause: () => unawaited(_handleControlsTransport(TransportCommand.toggle)),
+      forceFlex: forceFlex,
+      onToggleForceFlex: () {
+        foldLog('forceFlexLayout toggled -> ${!forceFlex} (from flex panel)');
+        SettingsService.instance.write(SettingsService.forceFlexLayout, !forceFlex);
+        _setPlayerState(() {});
+      },
+    );
+
+    if (split.mainAxis == Axis.vertical) {
+      // Tabletop: video above the hinge, controls below it.
+      return Column(
+        children: [
+          SizedBox(height: split.videoExtent, width: double.infinity, child: videoArea),
+          Expanded(child: panel),
+        ],
+      );
+    }
+    // Book: video left of the hinge, controls to its right.
+    return Row(
+      children: [
+        SizedBox(width: split.videoExtent, height: double.infinity, child: videoArea),
+        Expanded(child: panel),
+      ],
     );
   }
 }

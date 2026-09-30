@@ -255,6 +255,17 @@ abstract class Player {
   /// On other platforms, this is a no-op.
   Future<void> updateFrame();
 
+  /// Confine the native video surface to a device-pixel rectangle in
+  /// content-view coordinates ([left]/[top] origin, [right]/[bottom]
+  /// exclusive), or restore full window coverage when all bounds are null.
+  ///
+  /// On Android the video renders in a surface beneath the Flutter view, so
+  /// constraining the Flutter layout alone does not move it; the foldable
+  /// flex layout uses this to letterbox the video into the half of a bent
+  /// display that the split assigns it. The default no-op covers every
+  /// platform whose surface follows the Flutter layout or the Metal layer.
+  Future<void> setVideoRegion({int? left, int? top, int? right, int? bottom}) async {}
+
   /// Whether this player's video output can currently carry HDR.
   ///
   /// A query rather than a constant because on Linux it genuinely varies: the

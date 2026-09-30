@@ -10,6 +10,7 @@ import com.edde746.plezy.shared.MpvContentUriResolver
 import com.edde746.plezy.shared.PlayerChannelBinding
 import com.edde746.plezy.shared.PlayerDebugLog
 import com.edde746.plezy.shared.PlayerDelegate
+import com.edde746.plezy.shared.PlayerSurfaceHost
 import com.edde746.plezy.shared.ResolvedMpvUri
 import com.edde746.plezy.shared.SurfacePlayerCore
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -250,6 +251,7 @@ class ExoPlayerPlugin :
       "addSubtitleTrack" -> handleAddSubtitleTrack(call, result)
       "setVisible" -> handleSetVisible(call, result)
       "updateFrame" -> handleUpdateFrame(result)
+      "setVideoRegion" -> handleSetVideoRegion(call, result)
       "setVideoFrameRate" -> handleSetVideoFrameRate(call, result)
       "clearVideoFrameRate" -> handleClearVideoFrameRate(result)
       "requestAudioFocus" -> handleRequestAudioFocus(result)
@@ -1017,6 +1019,13 @@ class ExoPlayerPlugin :
 
   private fun handleUpdateFrame(result: MethodChannel.Result) {
     activeSurfaceCore?.updateFrame()
+    result.success(null)
+  }
+
+  private fun handleSetVideoRegion(call: MethodCall, result: MethodChannel.Result) {
+    // Both cores marshal to their own main-thread mechanism internally, so
+    // no extra wrapping is needed here.
+    activeSurfaceCore?.setVideoRegion(PlayerSurfaceHost.videoRegionFromCall(call))
     result.success(null)
   }
 

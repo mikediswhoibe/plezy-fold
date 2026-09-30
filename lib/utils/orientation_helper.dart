@@ -36,6 +36,18 @@ class OrientationHelper {
     ]);
   }
 
+  /// Pins playback to portrait without touching system UI, for the foldable
+  /// flex layout: while the hinge-angle sensor reports the bent (half-opened)
+  /// posture the split (video top, compact controls bottom) is only
+  /// meaningful in portrait, so this overrides the screen's landscape lock.
+  static Future<void> lockPortraitOrientation() async {
+    if (_platformOwnsOrientation) return;
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
+
   /// Enters the player's full-screen presentation with rotation locked.
   static void setLandscapeOrientation() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);

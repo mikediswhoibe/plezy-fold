@@ -1038,6 +1038,18 @@ class Translations$settings$en {
 	/// en: 'Automatically enter picture-in-picture when you leave the app during playback'
 	String get autoPipDescription => 'Automatically enter picture-in-picture when you leave the app during playback';
 
+	/// en: 'Fold Split Layout'
+	String get flexLayout => 'Fold Split Layout';
+
+	/// en: 'Splits the player while the device is bent (detected by the hinge angle): video on the top half, media controls on the other half, in portrait. A flat device keeps the standard layout'
+	String get flexLayoutDescription => 'Splits the player while the device is bent (detected by the hinge angle): video on the top half, media controls on the other half, in portrait. A flat device keeps the standard layout';
+
+	/// en: 'Force Compact Controls'
+	String get forceFlexLayout => 'Force Compact Controls';
+
+	/// en: 'On foldables, split the player while the device is bent (video top, compact controls bottom, forcing portrait) and keep the standard controls when flat. On non-foldable devices, previews the split in portrait'
+	String get forceFlexLayoutDescription => 'On foldables, split the player while the device is bent (video top, compact controls bottom, forcing portrait) and keep the standard controls when flat. On non-foldable devices, previews the split in portrait';
+
 	/// en: 'Match Content Frame Rate'
 	String get matchContentFrameRate => 'Match Content Frame Rate';
 
@@ -7635,6 +7647,10 @@ extension on Translations {
 			'settings.companionRemoteServerStopFailed' => 'Couldn\'t stop the companion server',
 			'settings.autoPip' => 'Auto Picture-in-Picture',
 			'settings.autoPipDescription' => 'Automatically enter picture-in-picture when you leave the app during playback',
+			'settings.flexLayout' => 'Fold Split Layout',
+			'settings.flexLayoutDescription' => 'Splits the player while the device is bent (detected by the hinge angle): video on the top half, media controls on the other half, in portrait. A flat device keeps the standard layout',
+			'settings.forceFlexLayout' => 'Force Compact Controls',
+			'settings.forceFlexLayoutDescription' => 'On foldables, split the player while the device is bent (video top, compact controls bottom, forcing portrait) and keep the standard controls when flat. On non-foldable devices, previews the split in portrait',
 			'settings.matchContentFrameRate' => 'Match Content Frame Rate',
 			'settings.matchContentFrameRateDescription' => 'Match display refresh rate to video content',
 			'settings.matchContentResolution' => 'Match Content Resolution',
@@ -7824,12 +7840,12 @@ extension on Translations {
 			'fileInfo.referenceFrames' => 'Reference Frames',
 			'fileInfo.dynamicRange' => 'Dynamic Range',
 			'fileInfo.dolbyVision' => 'Dolby Vision',
+			_ => null,
+		} ?? switch (path) {
 			'fileInfo.dolbyVisionLevel' => 'Dolby Vision Level',
 			'fileInfo.dolbyVisionVersion' => 'Dolby Vision Version',
 			'fileInfo.dolbyVisionLayers' => 'Dolby Vision Layers',
 			'fileInfo.baseLayerCompatibility' => 'Base Layer Compatibility',
-			_ => null,
-		} ?? switch (path) {
 			'fileInfo.avcBitstream' => 'AVC Bitstream',
 			'fileInfo.nalLengthSize' => 'NAL Length Size',
 			'fileInfo.scalingMatrix' => 'Custom Scaling Matrix',
@@ -8338,12 +8354,12 @@ extension on Translations {
 			'errors.failedToRate' => 'Couldn\'t update rating',
 			'errors.reasonTimedOut' => 'the connection timed out',
 			'errors.reasonUnreachable' => 'the server could not be reached',
+			_ => null,
+		} ?? switch (path) {
 			'errors.reasonRefused' => 'the server refused the request',
 			'errors.reasonNotFound' => 'the item is no longer on the server',
 			'errors.reasonServerError' => 'the server reported an error',
 			'errors.reasonCancelled' => 'the request was cancelled',
-			_ => null,
-		} ?? switch (path) {
 			'errors.reasonUnexpected' => 'an unexpected error occurred',
 			'libraries.title' => 'Libraries',
 			'libraries.fallbackTitle' => 'Library',
@@ -8852,12 +8868,12 @@ extension on Translations {
 			'watchTogether.hostChangedTo' => ({required Object name}) => '${name} is now the host',
 			'watchTogether.youAreNowHost' => 'You are now the host',
 			'watchTogether.hostTransferFailed' => ({required Object name}) => 'Couldn\'t make ${name} the host',
+			_ => null,
+		} ?? switch (path) {
 			'watchTogether.watchingWithOthers' => 'Watching with others',
 			'watchTogether.endSession' => 'End Session',
 			'watchTogether.leaveSession' => 'Leave Session',
 			'watchTogether.endSessionQuestion' => 'End Session?',
-			_ => null,
-		} ?? switch (path) {
 			'watchTogether.leaveSessionQuestion' => 'Leave Session?',
 			'watchTogether.endSessionConfirm' => 'This will end the session for all participants.',
 			'watchTogether.leaveSessionConfirm' => 'You will be removed from the session.',
@@ -9366,12 +9382,12 @@ extension on Translations {
 			'services.oauthProxy.body' => 'Scan this QR code or open the URL on any device.',
 			'services.oauthProxy.openToSignIn' => ({required Object service}) => 'Open ${service} to sign in',
 			'services.pendingAuth.copyUrl' => 'Copy sign-in URL',
+			_ => null,
+		} ?? switch (path) {
 			'services.pendingAuth.urlCopied' => 'URL copied',
 			'services.libraryFilter.title' => 'Library filter',
 			'services.libraryFilter.subtitleAllSyncing' => 'Syncing all libraries',
 			'services.libraryFilter.subtitleNoneSyncing' => 'Nothing syncing',
-			_ => null,
-		} ?? switch (path) {
 			'services.libraryFilter.subtitleBlocked' => ({required Object count}) => '${count} blocked',
 			'services.libraryFilter.subtitleAllowed' => ({required Object count}) => '${count} allowed',
 			'services.libraryFilter.mode' => 'Filter mode',

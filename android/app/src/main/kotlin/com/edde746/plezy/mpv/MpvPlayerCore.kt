@@ -3,6 +3,7 @@ package com.edde746.plezy.mpv
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
+import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.media.AudioAttributes
 import android.media.MediaCodecList
@@ -3008,6 +3009,19 @@ class MpvPlayerCore private constructor(
           Log.w(TAG, "Failed to update Android MPV surface frame", e)
         }
       }
+    }
+  }
+
+  override fun setVideoRegion(region: Rect?) {
+    // Audio-only: no surface to reposition — tolerated no-op.
+    if (audioOnly || disposing) return
+    runOnMain {
+      if (disposing) return@runOnMain
+      val container = surfaceContainer ?: return@runOnMain
+      PlayerSurfaceHost.applyVideoRegion(container, region)
+      // The container's global-layout listener re-runs applyVideoRectLayout,
+      // so the media-codec letterbox and the OSD plane follow the new bounds;
+      // GL-vo resizes its surface with the container and letterboxes inside.
     }
   }
 

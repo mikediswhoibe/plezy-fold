@@ -11,11 +11,16 @@ import org.w3c.dom.Element
  * rendering the Watch Next row is not necessarily the resolved default HOME activity (issue #1706).
  * The manifest declaration is therefore the only thing standing between a launcher-scoped read
  * grant and every app on the device.
+ *
+ * The authority is declared with the built-in `${'$'}{applicationId}` manifest variable, so it
+ * always tracks the applicationId (the runtime builds the same string from
+ * [SystemShelfArtworkProvider.authorityFor]) and can never collide with a side-installed copy of
+ * a different package.
  */
 class SystemShelfArtworkManifestTest {
   private companion object {
     const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
-    const val AUTHORITY = "com.edde746.plezy.systemshelf.artwork"
+    const val AUTHORITY = "${'$'}{applicationId}.systemshelf.artwork"
     val MANIFEST_CANDIDATES = listOf(
       "src/main/AndroidManifest.xml",
       "app/src/main/AndroidManifest.xml",

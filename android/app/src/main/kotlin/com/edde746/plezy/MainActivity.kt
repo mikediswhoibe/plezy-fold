@@ -29,6 +29,9 @@ import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import com.edde746.plezy.car.CarRestrictionsMonitor
 import com.edde746.plezy.exoplayer.ExoPlayerPlugin
+import com.edde746.plezy.fold.FoldFeatureMonitor
+import com.edde746.plezy.fold.FoldLogSink
+import com.edde746.plezy.fold.HingeAngleMonitor
 import com.edde746.plezy.mpv.MpvAudioPlayerPlugin
 import com.edde746.plezy.mpv.MpvPlayerPlugin
 import com.edde746.plezy.shared.AssistiveTechnologyMonitor
@@ -42,6 +45,7 @@ import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.android.TransparencyMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -105,11 +109,17 @@ class MainActivity : FlutterActivity() {
   private val APP_EXIT_CHANNEL = "com.plezy/app_exit"
   private val CAR_RESTRICTIONS_CHANNEL = "com.plezy/car_restrictions"
   private val ASSISTIVE_TECHNOLOGY_CHANNEL = "com.plezy/assistive_technology"
+  private val FOLD_FEATURE_CHANNEL = "com.plezy/fold_feature"
+  private val FOLD_LOG_CHANNEL = "com.plezy/fold_feature_log"
+  private val HINGE_POSTURE_CHANNEL = "com.plezy/hinge_posture"
   private var watchNextPlugin: WatchNextPlugin? = null
   private var carRestrictions: CarRestrictionsMonitor? = null
   private var carRestrictionsChannel: MethodChannel? = null
   private var assistiveTechnology: AssistiveTechnologyMonitor? = null
   private var assistiveTechnologyChannel: MethodChannel? = null
+  private var foldFeatureMonitor: FoldFeatureMonitor? = null
+  private var hingeAngleMonitor: HingeAngleMonitor? = null
+  private var foldLogSink: FoldLogSink? = null
   private var nativeTextInputFocused = false
   private var imeLeakRestartBudget = 0
   private var lastImeLeakRestartUptime = 0L
@@ -616,6 +626,11 @@ class MainActivity : FlutterActivity() {
     assistiveTechnology?.release()
     assistiveTechnology = null
     assistiveTechnologyChannel = null
+    foldFeatureMonitor?.stop()
+    foldFeatureMonitor = null
+    hingeAngleMonitor?.stop()
+    hingeAngleMonitor = null
+    foldLogSink = null
     activityStarted = false
     flutterSurfaceReconnectPending = false
     flutterTextureView = null
@@ -907,6 +922,44 @@ class MainActivity : FlutterActivity() {
     assistiveChannel.setMethodCallHandler { call, result ->
       when (call.method) {
         "getSignals" -> result.success(assistiveMonitor.signals())
+        else -> result.notImplemented()
+      }
+    }
+
+    // Fold feature observation (foldable tabletop/book postures). Silent on
+    // non-foldable devices and on API levels below 29; the Dart side keys
+    // flex layout off the stream, so a null stream is "no fold feature".
+    // The sink (plezy-fold.log in the app's external files dir) mirrors the
+    // whole detection pipeline to disk for on-device diagnosis.
+    foldLogSink = FoldLogSink.forProcess(applicationContext)
+    val foldFeatureMonitor =
+      FoldFeatureMonitor(
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, FOLD_FEATURE_CHANNEL),
+        foldLogSink,
+      )
+    foldFeatureMonitor.attach()
+    foldFeatureMonitor.start(this)
+    this.foldFeatureMonitor = foldFeatureMonitor
+
+    // Hinge-angle posture observation (the physical fold angle). On devices
+    // without the sensor this stream emits a single `available=false` payload,
+    // so the Dart side falls back to window geometry; every step is mirrored
+    // to the same fold log sink.
+    val hingeAngleMonitor = HingeAngleMonitor(
+      EventChannel(flutterEngine.dartExecutor.binaryMessenger, HINGE_POSTURE_CHANNEL),
+      applicationContext,
+      foldLogSink,
+    )
+    hingeAngleMonitor.attach()
+    hingeAngleMonitor.start()
+    this.hingeAngleMonitor = hingeAngleMonitor
+
+    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FOLD_LOG_CHANNEL).setMethodCallHandler { call, result ->
+      when (call.method) {
+        "append" -> {
+          foldLogSink?.append("dart", call.arguments as? String ?: "null")
+          result.success(null)
+        }
         else -> result.notImplemented()
       }
     }

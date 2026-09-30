@@ -11,6 +11,7 @@ import android.util.Log
 import com.edde746.plezy.exoplayer.supportedMpvSpdifCodecs
 import com.edde746.plezy.shared.PlayerChannelBinding
 import com.edde746.plezy.shared.PlayerDebugLog
+import com.edde746.plezy.shared.PlayerSurfaceHost
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -229,6 +230,7 @@ open class MpvPlayerPlugin(
       "command" -> handleCommand(call, result)
       "setVisible" -> handleSetVisible(call, result)
       "updateFrame" -> handleUpdateFrame(result)
+      "setVideoRegion" -> handleSetVideoRegion(call, result)
       "setVideoFrameRate" -> handleSetVideoFrameRate(call, result)
       "clearVideoFrameRate" -> handleClearVideoFrameRate(result)
       "requestAudioFocus" -> handleRequestAudioFocus(result)
@@ -601,6 +603,11 @@ open class MpvPlayerPlugin(
 
   private fun handleUpdateFrame(result: MethodChannel.Result) {
     playerCore?.updateFrame()
+    result.success(null)
+  }
+
+  private fun handleSetVideoRegion(call: MethodCall, result: MethodChannel.Result) {
+    playerCore?.setVideoRegion(PlayerSurfaceHost.videoRegionFromCall(call))
     result.success(null)
   }
 
